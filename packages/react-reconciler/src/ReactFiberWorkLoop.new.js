@@ -7,6 +7,8 @@
  * @flow
  */
 
+const abcde = false;
+
 import type {Thenable, Wakeable} from 'shared/ReactTypes';
 import type {Fiber, FiberRoot} from './ReactInternalTypes';
 import type {Lanes, Lane} from './ReactFiberLane';
@@ -83,6 +85,7 @@ import {
   FunctionComponent,
   ForwardRef,
   MemoComponent,
+  Profiler,
   SimpleMemoComponent,
   Block,
   OffscreenComponent,
@@ -94,6 +97,7 @@ import {
   PerformedWork,
   Placement,
   Update,
+  DidCapture,
   PlacementAndUpdate,
   Deletion,
   Ref,
@@ -106,6 +110,8 @@ import {
   HostEffectMask,
   Hydrating,
   HydratingAndUpdate,
+  LifecycleEffectMask,
+  SubtreeHasEffect,
 } from './ReactSideEffectTags';
 import {
   NoLanePriority,
@@ -239,6 +245,8 @@ let workInProgressRoot: FiberRoot | null = null;
 let workInProgress: Fiber | null = null;
 // The lanes we're rendering
 let workInProgressRootRenderLanes: Lanes = NoLanes;
+// The effects we're working on
+let workInProgressEffect: Fiber | null = null;
 
 // Stack that allows components to change the render lanes for its subtree
 // This is a superset of the lanes we started working on at the root. The only
@@ -435,6 +443,13 @@ export function requestUpdateLane(
   }
 
   return lane;
+}
+function testForChild(fiber) {
+  return (
+    fiber &&
+    typeof fiber.elementType === 'function' &&
+    fiber.elementType.name === 'Child'
+  );
 }
 
 export function scheduleUpdateOnFiber(
@@ -1530,15 +1545,26 @@ function renderRootConcurrent(root: FiberRoot, lanes: Lanes) {
   }
 }
 
+let countAA = 0;
 /** @noinline */
 function workLoopConcurrent() {
   // Perform work until Scheduler asks us to yield
+  countAA += 1;
+  // console.log(countAA);
+  if (countAA === 10) {
+    debugger;
+  }
   while (workInProgress !== null && !shouldYield()) {
     performUnitOfWork(workInProgress);
   }
 }
 
 function performUnitOfWork(unitOfWork: Fiber): void {
+  // console.log(unitOfWork.elementType);
+  if (testForChild(unitOfWork)) {
+    // debugger;
+  }
+
   // The current, flushed, state of this fiber is the alternate. Ideally
   // nothing should rely on this, but relying on it here means that we don't
   // need an additional field on the work in progress.
@@ -1571,12 +1597,12 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
   // sibling. If there are no more siblings, return to the parent fiber.
   let completedWork = unitOfWork;
   do {
+    // console.log(completedWork.elementType);
     // The current, flushed, state of this fiber is the alternate. Ideally
     // nothing should rely on this, but relying on it here means that we don't
     // need an additional field on the work in progress.
     const current = completedWork.alternate;
     const returnFiber = completedWork.return;
-
     // Check if the work completed or if something threw.
     if ((completedWork.effectTag & Incomplete) === NoEffect) {
       setCurrentDebugFiberInDEV(completedWork);
@@ -1679,6 +1705,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         // Mark the parent fiber as incomplete and clear its effect list.
         returnFiber.firstEffect = returnFiber.lastEffect = null;
         returnFiber.effectTag |= Incomplete;
+        returnFiber.effectTag &= ~SubtreeHasEffect;
       }
     }
 
@@ -1716,6 +1743,19 @@ function resetChildLanes(completedWork: Fiber) {
   }
 
   let newChildLanes = NoLanes;
+  let subtreeHasEffects = false;
+
+  let childrenDidNotComplete = false;
+  // When a fiber is cloned, its actualDuration is reset to 0. This value will
+  // only be updated if work is done on the fiber (i.e. it doesn't bailout).
+  // When work is done, it should bubble to the parent's actualDuration. If
+  // the fiber has not been cloned though, (meaning no work was done), then
+  // this value wixll reflect the amount of time spent working on a previous
+  // render. In that case it should not bubble. We determine whether it was
+  // cloned by comparing the child pointer.
+  const shouldBubble =
+    completedWork.alternate === null ||
+    completedWork.child !== completedWork.alternate.child;
 
   // Bubble up the earliest expiration time.
   if (enableProfilerTimer && (completedWork.mode & ProfileMode) !== NoMode) {
@@ -1724,24 +1764,23 @@ function resetChildLanes(completedWork: Fiber) {
     let actualDuration = completedWork.actualDuration;
     let treeBaseDuration = ((completedWork.selfBaseDuration: any): number);
 
-    // When a fiber is cloned, its actualDuration is reset to 0. This value will
-    // only be updated if work is done on the fiber (i.e. it doesn't bailout).
-    // When work is done, it should bubble to the parent's actualDuration. If
-    // the fiber has not been cloned though, (meaning no work was done), then
-    // this value will reflect the amount of time spent working on a previous
-    // render. In that case it should not bubble. We determine whether it was
-    // cloned by comparing the child pointer.
-    const shouldBubbleActualDurations =
-      completedWork.alternate === null ||
-      completedWork.child !== completedWork.alternate.child;
-
     let child = completedWork.child;
     while (child !== null) {
       newChildLanes = mergeLanes(
         newChildLanes,
         mergeLanes(child.lanes, child.childLanes),
       );
-      if (shouldBubbleActualDurations) {
+
+      subtreeHasEffects =
+        subtreeHasEffects ||
+        (child.effectTag & LifecycleEffectMask) !== NoEffect ||
+        (child.effectTag & SubtreeHasEffect) !== NoEffect;
+
+      if ((child.effectTag & Incomplete) !== NoEffect) {
+        childrenDidNotComplete = true;
+      }
+
+      if (shouldBubble) {
         actualDuration += child.actualDuration;
       }
       treeBaseDuration += child.treeBaseDuration;
@@ -1768,11 +1807,24 @@ function resetChildLanes(completedWork: Fiber) {
         newChildLanes,
         mergeLanes(child.lanes, child.childLanes),
       );
+
+      subtreeHasEffects =
+        subtreeHasEffects ||
+        (child.effectTag & LifecycleEffectMask) !== NoEffect ||
+        (child.effectTag & SubtreeHasEffect) !== NoEffect;
+
+      if ((child.effectTag & Incomplete) !== NoEffect) {
+        childrenDidNotComplete = true;
+      }
+
       child = child.sibling;
     }
   }
 
   completedWork.childLanes = newChildLanes;
+  if (subtreeHasEffects && !childrenDidNotComplete && shouldBubble) {
+    completedWork.effectTag |= SubtreeHasEffect;
+  }
 }
 
 function commitRoot(root) {
@@ -1956,26 +2008,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     // The next phase is the layout phase, where we call effects that read
     // the host tree after it's been mutated. The idiomatic use case for this is
     // layout, but class component lifecycles also fire here for legacy reasons.
-    nextEffect = firstEffect;
-    do {
-      if (__DEV__) {
-        invokeGuardedCallback(null, commitLayoutEffects, null, root, lanes);
-        if (hasCaughtError()) {
-          invariant(nextEffect !== null, 'Should be working on an effect.');
-          const error = clearCaughtError();
-          captureCommitPhaseError(nextEffect, error);
-          nextEffect = nextEffect.nextEffect;
-        }
-      } else {
-        try {
-          commitLayoutEffects(root, lanes);
-        } catch (error) {
-          invariant(nextEffect !== null, 'Should be working on an effect.');
-          captureCommitPhaseError(nextEffect, error);
-          nextEffect = nextEffect.nextEffect;
-        }
-      }
-    } while (nextEffect !== null);
+    commitLayoutEffects(root, lanes);
 
     nextEffect = null;
 
@@ -2222,24 +2255,42 @@ function commitMutationEffects(root: FiberRoot, renderPriorityLevel) {
 }
 
 function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
-  // TODO: Should probably move the bulk of this function to commitWork.
-  while (nextEffect !== null) {
-    setCurrentDebugFiberInDEV(nextEffect);
+  commitLayoutEffectsImpl(root.current, root, committedLanes);
+}
 
-    const effectTag = nextEffect.effectTag;
+function commitLayoutEffectsImpl(
+  fiber: Fiber,
+  root: FiberRoot,
+  committedLanes: Lanes,
+) {
+  if (fiber === null) {
+    return;
+  }
+
+  if (fiber.child && (fiber.effectTag & SubtreeHasEffect) !== NoEffect) {
+    commitLayoutEffectsImpl(fiber.child, root, committedLanes);
+  }
+
+  // use invokeGuardedCallback
+  try {
+    setCurrentDebugFiberInDEV(fiber);
+    const effectTag = fiber.effectTag;
 
     if (effectTag & (Update | Callback)) {
-      const current = nextEffect.alternate;
-      commitLayoutEffectOnFiber(root, current, nextEffect, committedLanes);
+      const current = fiber.alternate;
+      commitLayoutEffectOnFiber(root, current, fiber, committedLanes);
     }
 
     if (effectTag & Ref) {
-      commitAttachRef(nextEffect);
+      commitAttachRef(fiber);
     }
 
     resetCurrentDebugFiberInDEV();
-    nextEffect = nextEffect.nextEffect;
+  } catch (error) {
+    captureCommitPhaseError(fiber, error);
   }
+
+  commitLayoutEffectsImpl(fiber.sibling, root, committedLanes);
 }
 
 export function flushPassiveEffects() {
@@ -2813,7 +2864,9 @@ function warnAboutUpdateOnNotYetMountedFiberInDEV(fiber) {
 
     const previousFiber = ReactCurrentFiberCurrent;
     try {
+      debugger;
       setCurrentDebugFiberInDEV(fiber);
+      // throw '';
       console.error(
         "Can't perform a React state update on a component that hasn't mounted yet. " +
           'This indicates that you have a side-effect in your render function that ' +
@@ -2880,9 +2933,13 @@ function warnAboutUpdateOnUnmountedFiberInDEV(fiber) {
       // 1. Updating an ancestor that a component had registered itself with on mount.
       // 2. Resetting state when a component is hidden after going offscreen.
     } else {
+      // debugger;
       const previousFiber = ReactCurrentFiberCurrent;
+      // console.log('warn\n\n\n\n\n\n');
       try {
+        debugger;
         setCurrentDebugFiberInDEV(fiber);
+        // throw '';
         console.error(
           "Can't perform a React state update on an unmounted component. This " +
             'is a no-op, but it indicates a memory leak in your application. To ' +

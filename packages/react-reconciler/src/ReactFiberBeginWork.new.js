@@ -2182,8 +2182,13 @@ function mountSuspenseFallbackAfterRetryWithoutHydrating(
   renderLanes,
 ) {
   const mode = workInProgress.mode;
+  const primaryChildProps: OffscreenProps = {
+    mode: 'hidden',
+    children: primaryChildren,
+  };
+
   const primaryChildFragment = createFiberFromOffscreen(
-    primaryChildren,
+    primaryChildProps,
     mode,
     NoLanes,
     null,
@@ -3004,6 +3009,7 @@ function remountFiber(
       prevSibling.sibling = newWorkInProgress;
     }
 
+    // console.log('deleting fiber')
     // Delete the old fiber and place the new one.
     // Since the old fiber is disconnected, we have to schedule it manually.
     const last = returnFiber.lastEffect;

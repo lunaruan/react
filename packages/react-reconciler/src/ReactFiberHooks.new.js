@@ -1144,6 +1144,9 @@ function mountState<S>(
     lastRenderedReducer: basicStateReducer,
     lastRenderedState: (initialState: any),
   });
+  if (currentlyRenderingFiber.pendingProps && currentlyRenderingFiber.pendingProps.text === '9') {
+  // debugger;
+  }
   const dispatch: Dispatch<
     BasicStateAction<S>,
   > = (queue.dispatch = (dispatchAction.bind(
@@ -1157,6 +1160,9 @@ function mountState<S>(
 function updateState<S>(
   initialState: (() => S) | S,
 ): [S, Dispatch<BasicStateAction<S>>] {
+  if (currentlyRenderingFiber.pendingProps && currentlyRenderingFiber.pendingProps.text === '9') {
+  // debugger;
+  }
   return updateReducer(basicStateReducer, (initialState: any));
 }
 

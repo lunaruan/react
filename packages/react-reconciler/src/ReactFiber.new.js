@@ -127,7 +127,7 @@ function FiberNode(
   this.stateNode = null;
 
   // Fiber
-  this.return = null;
+  this.foo = null;
   this.child = null;
   this.sibling = null;
   this.index = 0;
@@ -143,7 +143,7 @@ function FiberNode(
   this.mode = mode;
 
   // Effects
-  this.effectTag = NoEffect;
+  this._effectTag = NoEffect;
   this.nextEffect = null;
 
   this.firstEffect = null;
@@ -194,12 +194,43 @@ function FiberNode(
   }
 }
 
+FiberNode.prototype = {
+  get effectTag() {
+    if (this.foo !== null && this.foo.child === null && this.foo.tag === Fragment) {
+      debugger;
+    }
+    return this._effectTag;
+  },
+
+  set effectTag(value) {
+    if (this.foo !== null && this.foo.child === null && this.foo.tag === Fragment) {
+      debugger;
+    }
+    this._effectTag = value;
+  },
+
+  get return() {
+    if (this.foo !== null && this.foo.child === null) {
+      debugger;
+    }
+    return this.foo;
+  },
+  
+  set return(value) {
+    if((this.foo !== null && value === null && this.tag === Fragment)) {
+    } else if (this.foo !== null && this.foo.child === null) {
+      debugger;
+    }
+    this.foo = value;
+  }
+}
+
 // This is a constructor function, rather than a POJO constructor, still
 // please ensure we do the following:
 // 1) Nobody should add any instance methods on this. Instance methods can be
 //    more difficult to predict when they get optimized and they are almost
 //    never inlined properly in static compilers.
-// 2) Nobody should rely on `instanceof Fiber` for type testing. We should
+// 2)s Nobody should rely on `instanceof Fiber` for type testing. We should
 //    always know when it is a fiber.
 // 3) We might want to experiment with using numeric keys since they are easier
 //    to optimize in a non-JIT environment.

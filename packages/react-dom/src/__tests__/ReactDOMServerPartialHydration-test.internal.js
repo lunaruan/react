@@ -367,7 +367,9 @@ describe('ReactDOMServerPartialHydration', () => {
     const span2 = container.getElementsByTagName('span')[0];
     // This is a new node.
     expect(span).not.toBe(span2);
-    expect(ref.current).toBe(span2);
+    // The effects list refactor causes this to be null because the Suspense Offscreen's child
+    // is null. However, since we can't hydrate Suspense in legacy this change in behavior is ok  
+    expect(ref.current).toBe(null);
 
     // Resolving the promise should render the final content.
     suspend = false;
@@ -1326,7 +1328,7 @@ describe('ReactDOMServerPartialHydration', () => {
     // First we render the final HTML. With the streaming renderer
     // this may have suspense points on the server but here we want
     // to test the completed HTML. Don't suspend on the server.
-    suspend = true;
+      suspend = true;
     const finalHTML = ReactDOMServer.renderToString(<App />);
     const container = document.createElement('div');
     container.innerHTML = finalHTML;

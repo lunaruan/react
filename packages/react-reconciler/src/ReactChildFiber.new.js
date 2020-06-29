@@ -289,9 +289,9 @@ function ChildReconciler(shouldTrackSideEffects) {
     }
     childToDelete.nextEffect = null;
 
+    // TODO subtreeTag Re-add this; we just need to clear the effect?
     if ((childToDelete.effectTag & Deletion) === NoEffect) {
       childToDelete.effectTag = Deletion;
-
       returnFiber.deletions.push(childToDelete);
     }
   }

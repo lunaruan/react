@@ -1985,6 +1985,7 @@ function commitRootImpl(root, renderPriorityLevel) {
       nextEffect.nextEffect = null;
       if (nextEffect.effectTag & Deletion) {
         detachFiberAfterEffects(nextEffect);
+        nextEffect.effectTag &= ~Deletion;
       }
       nextEffect = nextNextEffect;
     }
@@ -2204,6 +2205,8 @@ function commitMutationEffectsImpl(
   for (let i = 0; i < deletions.length; i++) {
     const childToDelete = deletions[i];
     commitDeletion(root, childToDelete, renderPriorityLevel);
+
+    // Don't clear the deletion effect yet; we also use it to know when we need to detach refs later.
   }
   fiber.deletions.splice(0);
 
@@ -2528,6 +2531,7 @@ function flushPassiveEffectsImpl() {
     effect.nextEffect = null;
     if (effect.effectTag & Deletion) {
       detachFiberAfterEffects(effect);
+      effect.effectTag &= ~Deletion;
     }
     effect = nextNextEffect;
   }

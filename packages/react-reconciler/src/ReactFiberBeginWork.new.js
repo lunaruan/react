@@ -3024,8 +3024,12 @@ function remountFiber(
     } else {
       returnFiber.firstEffect = returnFiber.lastEffect = current;
     }
+
     current.nextEffect = null;
-    current.effectTag = Deletion;
+    if ((current.effectTag & Deletion) === NoEffect) {
+      current.effectTag = Deletion;
+      oldWorkInProgress.deletions.push(current);
+    }
 
     newWorkInProgress.effectTag |= Placement;
 

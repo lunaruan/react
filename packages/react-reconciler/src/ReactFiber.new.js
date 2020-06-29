@@ -207,10 +207,10 @@ FiberNode.prototype = {
         require('shared/getComponentName').default(this.type),
         this._effectTag.toString(2).padStart(31, '0'), '->',
         value.toString(2).padStart(31, '0'), '\n',
-        new Error().stack.split('\n').slice(2,6).join('\n')
+        new Error().stack.split('\n').slice(2,3).join('\n'),
       );
     }
-    */
+      */
     this._effectTag = value;
   },
 };

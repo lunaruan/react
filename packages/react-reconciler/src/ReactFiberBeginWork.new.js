@@ -2058,7 +2058,6 @@ function updateSuspensePrimaryChildren(
     currentFallbackChildFragment.nextEffect = null;
     currentFallbackChildFragment.effectTag = Deletion;
     workInProgress.firstEffect = workInProgress.lastEffect = currentFallbackChildFragment;
-
     workInProgress.deletions.push(currentFallbackChildFragment);
   }
 
@@ -3024,12 +3023,9 @@ function remountFiber(
     } else {
       returnFiber.firstEffect = returnFiber.lastEffect = current;
     }
-
+    returnFiber.deletions.push(current);
     current.nextEffect = null;
-    if ((current.effectTag & Deletion) === NoEffect) {
-      current.effectTag = Deletion;
-      oldWorkInProgress.deletions.push(current);
-    }
+    current.effectTag = Deletion;
 
     newWorkInProgress.effectTag |= Placement;
 

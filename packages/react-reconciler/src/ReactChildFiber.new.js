@@ -15,7 +15,7 @@ import type {Fiber} from './ReactInternalTypes';
 import type {Lanes} from './ReactFiberLane';
 
 import getComponentName from 'shared/getComponentName';
-import {Placement, Deletion, NoEffect} from './ReactSideEffectTags';
+import {Placement, Deletion} from './ReactSideEffectTags';
 import {
   getIteratorFn,
   REACT_ELEMENT_TYPE,
@@ -280,6 +280,7 @@ function ChildReconciler(shouldTrackSideEffects) {
     // deletions, so we can just append the deletion to the list. The remaining
     // effects aren't added until the complete phase. Once we implement
     // resuming, this may not be true.
+    // TODO (effects) Get rid of effects list update here.
     const last = returnFiber.lastEffect;
     if (last !== null) {
       last.nextEffect = childToDelete;
@@ -287,13 +288,9 @@ function ChildReconciler(shouldTrackSideEffects) {
     } else {
       returnFiber.firstEffect = returnFiber.lastEffect = childToDelete;
     }
+    returnFiber.deletions.push(childToDelete);
     childToDelete.nextEffect = null;
-
-    // TODO subtreeTag Re-add this; we just need to clear the effect?
-    if ((childToDelete.effectTag & Deletion) === NoEffect) {
-      childToDelete.effectTag = Deletion;
-      returnFiber.deletions.push(childToDelete);
-    }
+    childToDelete.effectTag = Deletion;
   }
 
   function deleteRemainingChildren(

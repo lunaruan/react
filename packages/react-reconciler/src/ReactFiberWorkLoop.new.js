@@ -1914,7 +1914,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     focusedInstanceHandle = prepareForCommit(root.containerInfo);
     shouldFireAfterActiveInstanceBlur = false;
 
-    commitBeforeMutationEffects(finishedWork, root, renderPriorityLevel);
+    commitBeforeMutationEffects(finishedWork);
 
     // We no longer need to track the active instance fiber
     focusedInstanceHandle = null;
@@ -1942,7 +1942,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     // The next phase is the layout phase, where we call effects that read
     // the host tree after it's been mutated. The idiomatic use case for this is
     // layout, but class component lifecycles also fire here for legacy reasons.
-    commitLayoutEffects(root.current, lanes);
+    commitLayoutEffects(finishedWork, root, lanes);
 
     nextEffect = null;
 
@@ -1985,7 +1985,6 @@ function commitRootImpl(root, renderPriorityLevel) {
       nextEffect.nextEffect = null;
       if (nextEffect.effectTag & Deletion) {
         detachFiberAfterEffects(nextEffect);
-        nextEffect.effectTag &= ~Deletion;
       }
       nextEffect = nextNextEffect;
     }
@@ -2531,7 +2530,6 @@ function flushPassiveEffectsImpl() {
     effect.nextEffect = null;
     if (effect.effectTag & Deletion) {
       detachFiberAfterEffects(effect);
-      effect.effectTag &= ~Deletion;
     }
     effect = nextNextEffect;
   }

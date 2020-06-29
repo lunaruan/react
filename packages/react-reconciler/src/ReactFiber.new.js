@@ -29,7 +29,7 @@ import {
   enableScopeAPI,
   enableBlocksAPI,
 } from 'shared/ReactFeatureFlags';
-import {NoEffect, Deletion, Placement} from './ReactSideEffectTags';
+import {NoEffect, Placement} from './ReactSideEffectTags';
 import {ConcurrentRoot, BlockingRoot} from './ReactRootTags';
 import {
   IndeterminateComponent,
@@ -212,8 +212,8 @@ FiberNode.prototype = {
     }
     */
     this._effectTag = value;
-  }
-}
+  },
+};
 
 // This is a constructor function, rather than a POJO constructor, still
 // please ensure we do the following:
@@ -849,7 +849,7 @@ export function assignFiberPropertiesInDEV(
   target.dependencies = source.dependencies;
   target.mode = source.mode;
   target.effectTag = source.effectTag;
-  target.subtreeTag = source.NoEffect;
+  target.subtreeTag = source.subtreeTag;
   target.deletions = source.deletions;
   target.nextEffect = source.nextEffect;
   target.firstEffect = source.firstEffect;

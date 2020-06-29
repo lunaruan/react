@@ -106,8 +106,6 @@ import {
   HostEffectMask,
   Hydrating,
   HydratingAndUpdate,
-  LifecycleEffectMask,
-  SubtreeHasEffect,
 } from './ReactSideEffectTags';
 import {
   NoLanePriority,
@@ -1578,6 +1576,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
     // need an additional field on the work in progress.
     const current = completedWork.alternate;
     const returnFiber = completedWork.return;
+
     // Check if the work completed or if something threw.
     if ((completedWork.effectTag & Incomplete) === NoEffect) {
       setCurrentDebugFiberInDEV(completedWork);
@@ -1680,7 +1679,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         // Mark the parent fiber as incomplete and clear its effect list.
         returnFiber.firstEffect = returnFiber.lastEffect = null;
         returnFiber.effectTag |= Incomplete;
-        returnFiber.effectTag &= ~SubtreeHasEffect;
+        returnFiber.subtreeTag = NoEffect;
       }
     }
 
@@ -1718,17 +1717,10 @@ function resetChildLanes(completedWork: Fiber) {
   }
 
   let newChildLanes = NoLanes;
-  let subtreeHasEffects = false;
-
+  let subtreeTag = NoEffect;
   let childrenDidNotComplete = false;
-  // When a fiber is cloned, its actualDuration is reset to 0. This value will
-  // only be updated if work is done on the fiber (i.e. it doesn't bailout).
-  // When work is done, it should bubble to the parent's actualDuration. If
-  // the fiber has not been cloned though, (meaning no work was done), then
-  // this value wixll reflect the amount of time spent working on a previous
-  // render. In that case it should not bubble. We determine whether it was
-  // cloned by comparing the child pointer.
-  const shouldBubble =
+
+  const wasFiberCloned =
     completedWork.alternate === null ||
     completedWork.child !== completedWork.alternate.child;
 
@@ -1746,19 +1738,24 @@ function resetChildLanes(completedWork: Fiber) {
         mergeLanes(child.lanes, child.childLanes),
       );
 
-      subtreeHasEffects =
-        subtreeHasEffects ||
-        (child.effectTag &
-          (LifecycleEffectMask | Placement | ContentReset | Hydrating)) !==
-          NoEffect ||
-        (child.effectTag & SubtreeHasEffect) !== NoEffect ||
-        child.deletions.length > 0;
+      subtreeTag |= child.subtreeTag;
+      subtreeTag |= child.effectTag & HostEffectMask;
+      if (child.deletions.length > 0) {
+        subtreeTag |= Deletion;
+      }
 
       if ((child.effectTag & Incomplete) !== NoEffect) {
         childrenDidNotComplete = true;
       }
 
-      if (shouldBubble) {
+      // When a fiber is cloned, its actualDuration is reset to 0. This value will
+      // only be updated if work is done on the fiber (i.e. it doesn't bailout).
+      // When work is done, it should bubble to the parent's actualDuration. If
+      // the fiber has not been cloned though, (meaning no work was done), then
+      // this value will reflect the amount of time spent working on a previous
+      // render. In that case it should not bubble. We determine whether it was
+      // cloned by comparing the child pointer.
+      if (wasFiberCloned) {
         actualDuration += child.actualDuration;
       }
       treeBaseDuration += child.treeBaseDuration;
@@ -1786,13 +1783,11 @@ function resetChildLanes(completedWork: Fiber) {
         mergeLanes(child.lanes, child.childLanes),
       );
 
-      subtreeHasEffects =
-        subtreeHasEffects ||
-        (child.effectTag &
-          (LifecycleEffectMask | Placement | ContentReset | Hydrating)) !==
-          NoEffect ||
-        (child.effectTag & SubtreeHasEffect) !== NoEffect ||
-        child.deletions.length > 0;
+      subtreeTag |= child.subtreeTag;
+      subtreeTag |= child.effectTag & HostEffectMask;
+      if (child.deletions.length > 0) {
+        subtreeTag |= Deletion;
+      }
 
       if ((child.effectTag & Incomplete) !== NoEffect) {
         childrenDidNotComplete = true;
@@ -1803,8 +1798,10 @@ function resetChildLanes(completedWork: Fiber) {
   }
 
   completedWork.childLanes = newChildLanes;
-  if (subtreeHasEffects && !childrenDidNotComplete && shouldBubble) {
-    completedWork.effectTag |= SubtreeHasEffect;
+
+  // TODO (effects) is it appropriate to check wasFiberCloned for this?
+  if (!childrenDidNotComplete && wasFiberCloned) {
+    completedWork.subtreeTag |= subtreeTag;
   }
 }
 
@@ -1917,26 +1914,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     focusedInstanceHandle = prepareForCommit(root.containerInfo);
     shouldFireAfterActiveInstanceBlur = false;
 
-    nextEffect = firstEffect;
-    do {
-      if (__DEV__) {
-        invokeGuardedCallback(null, commitBeforeMutationEffects, null);
-        if (hasCaughtError()) {
-          invariant(nextEffect !== null, 'Should be working on an effect.');
-          const error = clearCaughtError();
-          captureCommitPhaseError(nextEffect, error);
-          nextEffect = nextEffect.nextEffect;
-        }
-      } else {
-        try {
-          commitBeforeMutationEffects();
-        } catch (error) {
-          invariant(nextEffect !== null, 'Should be working on an effect.');
-          captureCommitPhaseError(nextEffect, error);
-          nextEffect = nextEffect.nextEffect;
-        }
-      }
-    } while (nextEffect !== null);
+    commitBeforeMutationEffects(finishedWork, root, renderPriorityLevel);
 
     // We no longer need to track the active instance fiber
     focusedInstanceHandle = null;
@@ -1964,7 +1942,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     // The next phase is the layout phase, where we call effects that read
     // the host tree after it's been mutated. The idiomatic use case for this is
     // layout, but class component lifecycles also fire here for legacy reasons.
-    commitLayoutEffects(root, lanes);
+    commitLayoutEffects(root.current, lanes);
 
     nextEffect = null;
 
@@ -2000,6 +1978,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     // We are done with the effect chain at this point so let's clear the
     // nextEffect pointers to assist with GC. If we have passive effects, we'll
     // clear this in flushPassiveEffects.
+    // TODO (effects)
     nextEffect = firstEffect;
     while (nextEffect !== null) {
       const nextNextEffect = nextEffect.nextEffect;
@@ -2090,49 +2069,75 @@ function commitRootImpl(root, renderPriorityLevel) {
   return null;
 }
 
-function commitBeforeMutationEffects() {
-  while (nextEffect !== null) {
-    const current = nextEffect.alternate;
+function commitBeforeMutationEffects(fiber: Fiber) {
+  if (fiber.child !== null) {
+    const primarySubtreeTag =
+      fiber.subtreeTag & (Deletion | Snapshot | Passive);
+    if (primarySubtreeTag !== NoEffect) {
+      commitBeforeMutationEffects(fiber.child);
+    }
+  }
 
-    if (!shouldFireAfterActiveInstanceBlur && focusedInstanceHandle !== null) {
-      if ((nextEffect.effectTag & Deletion) !== NoEffect) {
-        if (doesFiberContain(nextEffect, focusedInstanceHandle)) {
-          shouldFireAfterActiveInstanceBlur = true;
-          beforeActiveInstanceBlur();
-        }
-      } else {
-        // TODO: Move this out of the hot path using a dedicated effect tag.
-        if (
-          nextEffect.tag === SuspenseComponent &&
-          isSuspenseBoundaryBeingHidden(current, nextEffect) &&
-          doesFiberContain(nextEffect, focusedInstanceHandle)
-        ) {
-          shouldFireAfterActiveInstanceBlur = true;
-          beforeActiveInstanceBlur();
-        }
+  if (__DEV__) {
+    setCurrentDebugFiberInDEV(fiber);
+    invokeGuardedCallback(null, commitBeforeMutationEffectsImpl, null, fiber);
+    if (hasCaughtError()) {
+      const error = clearCaughtError();
+      captureCommitPhaseError(fiber, error);
+    }
+    resetCurrentDebugFiberInDEV();
+  } else {
+    try {
+      commitBeforeMutationEffectsImpl(fiber);
+    } catch (error) {
+      captureCommitPhaseError(fiber, error);
+    }
+  }
+
+  if (fiber.sibling !== null) {
+    commitBeforeMutationEffects(fiber.sibling);
+  }
+}
+
+function commitBeforeMutationEffectsImpl(fiber: Fiber) {
+  const current = fiber.alternate;
+  const effectTag = fiber.effectTag;
+
+  if (!shouldFireAfterActiveInstanceBlur && focusedInstanceHandle !== null) {
+    if ((effectTag & Deletion) !== NoEffect) {
+      if (doesFiberContain(fiber, focusedInstanceHandle)) {
+        shouldFireAfterActiveInstanceBlur = true;
+        beforeActiveInstanceBlur();
+      }
+    } else {
+      // TODO: Move this out of the hot path using a dedicated effect tag.
+      if (
+        fiber.tag === SuspenseComponent &&
+        isSuspenseBoundaryBeingHidden(current, fiber) &&
+        doesFiberContain(fiber, focusedInstanceHandle)
+      ) {
+        shouldFireAfterActiveInstanceBlur = true;
+        beforeActiveInstanceBlur();
       }
     }
+  }
 
-    const effectTag = nextEffect.effectTag;
-    if ((effectTag & Snapshot) !== NoEffect) {
-      setCurrentDebugFiberInDEV(nextEffect);
+  if ((effectTag & Snapshot) !== NoEffect) {
+    setCurrentDebugFiberInDEV(fiber);
+    commitBeforeMutationEffectOnFiber(current, fiber);
+    resetCurrentDebugFiberInDEV();
+  }
 
-      commitBeforeMutationEffectOnFiber(current, nextEffect);
-
-      resetCurrentDebugFiberInDEV();
+  if ((effectTag & Passive) !== NoEffect) {
+    // If there are passive effects, schedule a callback to flush at
+    // the earliest opportunity.
+    if (!rootDoesHavePassiveEffects) {
+      rootDoesHavePassiveEffects = true;
+      scheduleCallback(NormalSchedulerPriority, () => {
+        flushPassiveEffects();
+        return null;
+      });
     }
-    if ((effectTag & Passive) !== NoEffect) {
-      // If there are passive effects, schedule a callback to flush at
-      // the earliest opportunity.
-      if (!rootDoesHavePassiveEffects) {
-        rootDoesHavePassiveEffects = true;
-        scheduleCallback(NormalSchedulerPriority, () => {
-          flushPassiveEffects();
-          return null;
-        });
-      }
-    }
-    nextEffect = nextEffect.nextEffect;
   }
 }
 
@@ -2141,30 +2146,40 @@ function commitMutationEffects(
   root: FiberRoot,
   renderPriorityLevel,
 ) {
-  if (fiber === null) {
-    return;
-  }
-  if (fiber.child && (fiber.effectTag & SubtreeHasEffect) !== NoEffect) {
-    commitMutationEffects(fiber.child, root, renderPriorityLevel);
+  if (fiber.child !== null) {
+    const primarySubtreeTag =
+      fiber.subtreeTag & (Placement | Update | Deletion | Hydrating);
+    if (primarySubtreeTag !== NoEffect) {
+      commitMutationEffects(fiber.child, root, renderPriorityLevel);
+    }
   }
 
-  // TODO use invokeGguardedCallback
-  if (
-    (fiber.effectTag !== NoEffect && fiber.effectTag !== SubtreeHasEffect) ||
-    fiber.deletions.length > 0
-  ) {
+  if (__DEV__) {
+    setCurrentDebugFiberInDEV(fiber);
+    invokeGuardedCallback(
+      null,
+      commitMutationEffectsImpl,
+      null,
+      fiber,
+      root,
+      renderPriorityLevel,
+    );
+    if (hasCaughtError()) {
+      const error = clearCaughtError();
+      captureCommitPhaseError(fiber, error);
+    }
+    resetCurrentDebugFiberInDEV();
+  } else {
     try {
-      setCurrentDebugFiberInDEV(fiber);
-
       commitMutationEffectsImpl(fiber, root, renderPriorityLevel);
-
-      resetCurrentDebugFiberInDEV();
     } catch (error) {
       captureCommitPhaseError(fiber, error);
     }
   }
 
-  commitMutationEffects(fiber.sibling, root, renderPriorityLevel);
+  if (fiber.sibling !== null) {
+    commitMutationEffects(fiber.sibling, root, renderPriorityLevel);
+  }
 }
 
 function commitMutationEffectsImpl(
@@ -2184,7 +2199,7 @@ function commitMutationEffectsImpl(
     }
   }
 
-  // TODO Is this the right place/timing to delete children?
+  // TODO (effects) Is this the right place/timing to delete children?
   const deletions = fiber.deletions;
   for (let i = 0; i < deletions.length; i++) {
     const childToDelete = deletions[i];
@@ -2239,8 +2254,44 @@ function commitMutationEffectsImpl(
   }
 }
 
-function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
-  commitLayoutEffectsImpl(root.current, root, committedLanes);
+function commitLayoutEffects(
+  fiber: Fiber,
+  root: FiberRoot,
+  committedLanes: Lanes,
+) {
+  if (fiber.child !== null) {
+    const primarySubtreeTag = fiber.subtreeTag & (Update | Callback | Ref);
+    if (primarySubtreeTag !== NoEffect) {
+      commitLayoutEffects(fiber.child, root, committedLanes);
+    }
+  }
+
+  if (__DEV__) {
+    setCurrentDebugFiberInDEV(fiber);
+    invokeGuardedCallback(
+      null,
+      commitLayoutEffectsImpl,
+      null,
+      fiber,
+      root,
+      committedLanes,
+    );
+    if (hasCaughtError()) {
+      const error = clearCaughtError();
+      captureCommitPhaseError(fiber, error);
+    }
+    resetCurrentDebugFiberInDEV();
+  } else {
+    try {
+      commitLayoutEffectsImpl(fiber, root, committedLanes);
+    } catch (error) {
+      captureCommitPhaseError(fiber, error);
+    }
+  }
+
+  if (fiber.sibling !== null) {
+    commitLayoutEffects(fiber.sibling, root, committedLanes);
+  }
 }
 
 function commitLayoutEffectsImpl(
@@ -2248,39 +2299,20 @@ function commitLayoutEffectsImpl(
   root: FiberRoot,
   committedLanes: Lanes,
 ) {
-  if (fiber === null) {
-    return;
+  const effectTag = fiber.effectTag;
+
+  setCurrentDebugFiberInDEV(fiber);
+
+  if (effectTag & (Update | Callback)) {
+    const current = fiber.alternate;
+    commitLayoutEffectOnFiber(root, current, fiber, committedLanes);
   }
 
-  if (
-    fiber.child !== null &&
-    (fiber.effectTag & SubtreeHasEffect) !== NoEffect
-  ) {
-    commitLayoutEffectsImpl(fiber.child, root, committedLanes);
+  if (effectTag & Ref) {
+    commitAttachRef(fiber);
   }
 
-  // use invokeGuardedCallback
-  try {
-    setCurrentDebugFiberInDEV(fiber);
-    const effectTag = fiber.effectTag;
-
-    if (effectTag & (Update | Callback)) {
-      const current = fiber.alternate;
-      commitLayoutEffectOnFiber(root, current, fiber, committedLanes);
-    }
-
-    if (effectTag & Ref) {
-      commitAttachRef(fiber);
-    }
-
-    resetCurrentDebugFiberInDEV();
-  } catch (error) {
-    captureCommitPhaseError(fiber, error);
-  }
-
-  if (fiber.sibling !== null) {
-    commitLayoutEffectsImpl(fiber.sibling, root, committedLanes);
-  }
+  resetCurrentDebugFiberInDEV();
 }
 
 export function flushPassiveEffects() {

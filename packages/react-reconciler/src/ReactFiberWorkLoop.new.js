@@ -2149,7 +2149,8 @@ function commitMutationEffects(
 ) {
   if (fiber.child !== null) {
     const primarySubtreeTag =
-      fiber.subtreeTag & (Placement | Update | Deletion | Hydrating);
+      fiber.subtreeTag &
+      (ContentReset | Deletion | Hydrating | Placement | Update);
     if (primarySubtreeTag !== NoEffect) {
       commitMutationEffects(fiber.child, root, renderPriorityLevel);
     }

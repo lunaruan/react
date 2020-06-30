@@ -1062,6 +1062,14 @@ function completeWork(
                 // Reset the effect list before doing the second pass since that's now invalid.
                 if (renderState.lastEffect === null) {
                   workInProgress.firstEffect = null;
+                  let child = workInProgress.child;
+                  // TODO: This probably isn't the best approach. Discuss with Brian
+                  while (child !== null) {
+                    if (child.deletions.length > 0) {
+                      child.deletions = [];
+                    }
+                    child = child.sibling;
+                  }
                 }
                 workInProgress.lastEffect = renderState.lastEffect;
                 // Reset the child fibers to their original state.

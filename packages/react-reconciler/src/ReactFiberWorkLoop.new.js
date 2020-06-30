@@ -2105,20 +2105,30 @@ function commitBeforeMutationEffectsImpl(fiber: Fiber) {
   const effectTag = fiber.effectTag;
 
   if (!shouldFireAfterActiveInstanceBlur && focusedInstanceHandle !== null) {
-    if ((effectTag & Deletion) !== NoEffect) {
-      if (doesFiberContain(fiber, focusedInstanceHandle)) {
-        shouldFireAfterActiveInstanceBlur = true;
-        beforeActiveInstanceBlur();
-      }
-    } else {
-      // TODO: Move this out of the hot path using a dedicated effect tag.
-      if (
-        fiber.tag === SuspenseComponent &&
-        isSuspenseBoundaryBeingHidden(current, fiber) &&
-        doesFiberContain(fiber, focusedInstanceHandle)
-      ) {
-        shouldFireAfterActiveInstanceBlur = true;
-        beforeActiveInstanceBlur();
+    const deletions = fiber.deletions;
+    for (let i = 0; i < deletions.length; i++) {
+      const childToDelete = deletions[i];
+
+      // TODO (effects) It would be nice to avoid calling doesFiberContain()
+      // Maybe we can repurpose one of the subtreeTag positions for this instead?
+      // Use it to store which part of the tree the focused instance is in?
+      // This assumes we can safely determine that instance during the "render" phase.
+
+      if ((childToDelete.effectTag & Deletion) !== NoEffect) {
+        if (doesFiberContain(childToDelete, focusedInstanceHandle)) {
+          shouldFireAfterActiveInstanceBlur = true;
+          beforeActiveInstanceBlur();
+        }
+      } else {
+        // TODO: Move this out of the hot path using a dedicated effect tag.
+        if (
+          childToDelete.tag === SuspenseComponent &&
+          isSuspenseBoundaryBeingHidden(current, childToDelete) &&
+          doesFiberContain(childToDelete, focusedInstanceHandle)
+        ) {
+          shouldFireAfterActiveInstanceBlur = true;
+          beforeActiveInstanceBlur();
+        }
       }
     }
   }
@@ -2201,7 +2211,6 @@ function commitMutationEffectsImpl(
     }
   }
 
-  // TODO (effects) Is this the right place/timing to delete children?
   const deletions = fiber.deletions;
   for (let i = 0; i < deletions.length; i++) {
     const childToDelete = deletions[i];

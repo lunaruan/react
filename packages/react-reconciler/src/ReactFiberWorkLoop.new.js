@@ -1680,6 +1680,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         returnFiber.firstEffect = returnFiber.lastEffect = null;
         returnFiber.effectTag |= Incomplete;
         returnFiber.subtreeTag = NoEffect;
+        returnFiber.deletions = [];
       }
     }
 

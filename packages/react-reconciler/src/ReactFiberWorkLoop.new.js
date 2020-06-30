@@ -2073,7 +2073,7 @@ function commitRootImpl(root, renderPriorityLevel) {
 function commitBeforeMutationEffects(fiber: Fiber) {
   if (fiber.child !== null) {
     const primarySubtreeTag =
-      fiber.subtreeTag & (Deletion | Snapshot | Passive);
+      fiber.subtreeTag & (Deletion | Snapshot | Passive | Placement);
     if (primarySubtreeTag !== NoEffect) {
       commitBeforeMutationEffects(fiber.child);
     }
@@ -2105,6 +2105,7 @@ function commitBeforeMutationEffectsImpl(fiber: Fiber) {
   const effectTag = fiber.effectTag;
 
   if (!shouldFireAfterActiveInstanceBlur && focusedInstanceHandle !== null) {
+    // Check to see if the focused element was inside of a deleted subtree.
     const deletions = fiber.deletions;
     for (let i = 0; i < deletions.length; i++) {
       const childToDelete = deletions[i];
@@ -2119,17 +2120,18 @@ function commitBeforeMutationEffectsImpl(fiber: Fiber) {
           shouldFireAfterActiveInstanceBlur = true;
           beforeActiveInstanceBlur();
         }
-      } else {
-        // TODO: Move this out of the hot path using a dedicated effect tag.
-        if (
-          childToDelete.tag === SuspenseComponent &&
-          isSuspenseBoundaryBeingHidden(current, childToDelete) &&
-          doesFiberContain(childToDelete, focusedInstanceHandle)
-        ) {
-          shouldFireAfterActiveInstanceBlur = true;
-          beforeActiveInstanceBlur();
-        }
       }
+    }
+
+    // Check to see if the focused element was inside of a hidden (Suspense) subtree.
+    // TODO: Move this out of the hot path using a dedicated effect tag.
+    if (
+      fiber.tag === SuspenseComponent &&
+      isSuspenseBoundaryBeingHidden(current, fiber) &&
+      doesFiberContain(fiber, focusedInstanceHandle)
+    ) {
+      shouldFireAfterActiveInstanceBlur = true;
+      beforeActiveInstanceBlur();
     }
   }
 

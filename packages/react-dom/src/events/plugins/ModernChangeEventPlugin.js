@@ -3,9 +3,15 @@
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
+ *
+ * @flow
  */
+import type {AnyNativeEvent, EventTypes} from '../PluginModuleType';
+import type {TopLevelType} from '../TopLevelEventTypes';
+import type {DispatchQueue} from '../PluginModuleType';
+import type {EventSystemFlags} from '../EventSystemFlags';
 
-import SyntheticEvent from 'legacy-events/SyntheticEvent';
+import SyntheticEvent from '../SyntheticEvent';
 import isTextInputElement from '../isTextInputElement';
 import {canUseDOM} from 'shared/ExecutionEnvironment';
 
@@ -33,7 +39,7 @@ import {
   accumulateTwoPhaseListeners,
 } from '../DOMModernPluginEventSystem';
 
-const eventTypes = {
+const eventTypes: EventTypes = {
   change: {
     phasedRegistrationNames: {
       bubbled: 'onChange',
@@ -58,7 +64,7 @@ function createAndAccumulateChangeEvent(
   nativeEvent,
   target,
 ) {
-  const event = SyntheticEvent.getPooled(
+  const event = new SyntheticEvent(
     eventTypes.change,
     null,
     nativeEvent,
@@ -66,9 +72,8 @@ function createAndAccumulateChangeEvent(
   );
   event.type = 'change';
   // Flag this event loop as needing state restore.
-  enqueueStateRestore(target);
+  enqueueStateRestore(((target: any): Node));
   accumulateTwoPhaseListeners(inst, dispatchQueue, event);
-  return event;
 }
 /**
  * For IE shims
@@ -82,12 +87,15 @@ let activeElementInst = null;
 function shouldUseChangeEvent(elem) {
   const nodeName = elem.nodeName && elem.nodeName.toLowerCase();
   return (
-    nodeName === 'select' || (nodeName === 'input' && elem.type === 'file')
+    nodeName === 'select' ||
+    (nodeName === 'input' && (elem: any).type === 'file')
   );
 }
 
 function manualDispatchChangeEvent(nativeEvent) {
-  const event = createAndAccumulateChangeEvent(
+  const dispatchQueue = [];
+  createAndAccumulateChangeEvent(
+    dispatchQueue,
     activeElementInst,
     nativeEvent,
     getEventTarget(nativeEvent),
@@ -104,16 +112,16 @@ function manualDispatchChangeEvent(nativeEvent) {
   // components don't work properly in conjunction with event bubbling because
   // the component is rerendered and the value reverted before all the event
   // handlers can run. See https://github.com/facebook/react/issues/708.
-  batchedUpdates(runEventInBatch, event);
+  batchedUpdates(runEventInBatch, dispatchQueue);
 }
 
-function runEventInBatch(event) {
-  dispatchEventsInBatch([event]);
+function runEventInBatch(dispatchQueue) {
+  dispatchEventsInBatch(dispatchQueue);
 }
 
-function getInstIfValueChanged(targetInst) {
+function getInstIfValueChanged(targetInst: Object) {
   const targetNode = getNodeFromInstance(targetInst);
-  if (updateValueIfChanged(targetNode)) {
+  if (updateValueIfChanged(((targetNode: any): HTMLInputElement))) {
     return targetInst;
   }
 }
@@ -144,7 +152,7 @@ if (canUseDOM) {
 function startWatchingForValueChange(target, targetInst) {
   activeElement = target;
   activeElementInst = targetInst;
-  activeElement.attachEvent('onpropertychange', handlePropertyChange);
+  (activeElement: any).attachEvent('onpropertychange', handlePropertyChange);
 }
 
 /**
@@ -155,7 +163,7 @@ function stopWatchingForValueChange() {
   if (!activeElement) {
     return;
   }
-  activeElement.detachEvent('onpropertychange', handlePropertyChange);
+  (activeElement: any).detachEvent('onpropertychange', handlePropertyChange);
   activeElement = null;
   activeElementInst = null;
 }
@@ -240,8 +248,8 @@ function getTargetInstForInputOrChangeEvent(topLevelType, targetInst) {
   }
 }
 
-function handleControlledInputBlur(node) {
-  const state = node._wrapperState;
+function handleControlledInputBlur(node: HTMLInputElement) {
+  const state = (node: any)._wrapperState;
 
   if (!state || !state.controlled || node.type !== 'number') {
     return;
@@ -249,7 +257,7 @@ function handleControlledInputBlur(node) {
 
   if (!disableInputAttributeSyncing) {
     // If controlled, assign the value attribute to the current value on blur
-    setDefaultValue(node, 'number', node.value);
+    setDefaultValue((node: any), 'number', (node: any).value);
   }
 }
 
@@ -263,58 +271,52 @@ function handleControlledInputBlur(node) {
  * - textarea
  * - select
  */
-const ChangeEventPlugin = {
-  eventTypes: eventTypes,
+function extractEvents(
+  dispatchQueue: DispatchQueue,
+  topLevelType: TopLevelType,
+  targetInst: null | Fiber,
+  nativeEvent: AnyNativeEvent,
+  nativeEventTarget: null | EventTarget,
+  eventSystemFlags: EventSystemFlags,
+  targetContainer: null | EventTarget,
+) {
+  const targetNode = targetInst ? getNodeFromInstance(targetInst) : window;
 
-  _isInputEventSupported: isInputEventSupported,
-
-  extractEvents: function(
-    dispatchQueue,
-    topLevelType,
-    targetInst,
-    nativeEvent,
-    nativeEventTarget,
-    eventSystemFlags,
-    container,
-  ) {
-    const targetNode = targetInst ? getNodeFromInstance(targetInst) : window;
-
-    let getTargetInstFunc, handleEventFunc;
-    if (shouldUseChangeEvent(targetNode)) {
-      getTargetInstFunc = getTargetInstForChangeEvent;
-    } else if (isTextInputElement(targetNode)) {
-      if (isInputEventSupported) {
-        getTargetInstFunc = getTargetInstForInputOrChangeEvent;
-      } else {
-        getTargetInstFunc = getTargetInstForInputEventPolyfill;
-        handleEventFunc = handleEventsForInputEventPolyfill;
-      }
-    } else if (shouldUseClickEvent(targetNode)) {
-      getTargetInstFunc = getTargetInstForClickEvent;
+  let getTargetInstFunc, handleEventFunc;
+  if (shouldUseChangeEvent(targetNode)) {
+    getTargetInstFunc = getTargetInstForChangeEvent;
+  } else if (isTextInputElement(((targetNode: any): HTMLElement))) {
+    if (isInputEventSupported) {
+      getTargetInstFunc = getTargetInstForInputOrChangeEvent;
+    } else {
+      getTargetInstFunc = getTargetInstForInputEventPolyfill;
+      handleEventFunc = handleEventsForInputEventPolyfill;
     }
+  } else if (shouldUseClickEvent(targetNode)) {
+    getTargetInstFunc = getTargetInstForClickEvent;
+  }
 
-    if (getTargetInstFunc) {
-      const inst = getTargetInstFunc(topLevelType, targetInst);
-      if (inst) {
-        createAndAccumulateChangeEvent(
-          dispatchQueue,
-          inst,
-          nativeEvent,
-          nativeEventTarget,
-        );
-        return;
-      }
+  if (getTargetInstFunc) {
+    const inst = getTargetInstFunc(topLevelType, targetInst);
+    if (inst) {
+      createAndAccumulateChangeEvent(
+        dispatchQueue,
+        inst,
+        nativeEvent,
+        nativeEventTarget,
+      );
+      return;
     }
+  }
 
-    if (handleEventFunc) {
-      handleEventFunc(topLevelType, targetNode, targetInst);
-    }
+  if (handleEventFunc) {
+    handleEventFunc(topLevelType, targetNode, targetInst);
+  }
 
-    // When blurring, set the value attribute for number inputs
-    if (topLevelType === TOP_BLUR) {
-      handleControlledInputBlur(targetNode);
-    }
-  },
-};
+  // When blurring, set the value attribute for number inputs
+  if (topLevelType === TOP_BLUR) {
+    handleControlledInputBlur(((targetNode: any): HTMLInputElement));
+  }
+}
 
-export default ChangeEventPlugin;
+export {eventTypes, extractEvents};

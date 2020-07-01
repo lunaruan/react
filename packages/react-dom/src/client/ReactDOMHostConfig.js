@@ -7,7 +7,7 @@
  * @flow
  */
 
-import type {TopLevelType} from 'legacy-events/TopLevelEventTypes';
+import type {TopLevelType} from '../events/TopLevelEventTypes';
 import type {Fiber, FiberRoot} from 'react-reconciler/src/ReactInternalTypes';
 import type {
   BoundingRect,
@@ -75,7 +75,6 @@ import {
   enableSuspenseServerRenderer,
   enableDeprecatedFlareAPI,
   enableFundamentalAPI,
-  enableModernEventSystem,
   enableCreateEventHandleAPI,
   enableScopeAPI,
 } from 'shared/ReactFeatureFlags';
@@ -1123,9 +1122,7 @@ export function makeOpaqueHydratingObject(
 }
 
 export function preparePortalMount(portalInstance: Instance): void {
-  if (enableModernEventSystem) {
-    listenToEvent('onMouseEnter', portalInstance);
-  }
+  listenToEvent('onMouseEnter', portalInstance);
 }
 
 export function prepareScopeUpdate(

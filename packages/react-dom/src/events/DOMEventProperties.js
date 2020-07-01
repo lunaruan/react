@@ -11,11 +11,12 @@ import type {EventPriority} from 'shared/ReactTypes';
 import type {
   TopLevelType,
   DOMTopLevelEventType,
-} from 'legacy-events/TopLevelEventTypes';
+} from '../events/TopLevelEventTypes';
+import type {EventTypes} from '../events/PluginModuleType';
 import type {
   DispatchConfig,
   CustomDispatchConfig,
-} from 'legacy-events/ReactSyntheticEventType';
+} from '../events/ReactSyntheticEventType';
 
 import * as DOMTopLevelEventTypes from './DOMTopLevelEventTypes';
 import {
@@ -32,7 +33,7 @@ import {enableCreateEventHandleAPI} from 'shared/ReactFeatureFlags';
 // here once. If we remove or refactor the
 // SimpleEventPlugin, we should also remove or
 // update the below line.
-export const simpleEventPluginEventTypes = {};
+export const simpleEventPluginEventTypes: EventTypes = {};
 
 export const topLevelEventsToDispatchConfig: Map<
   TopLevelType,

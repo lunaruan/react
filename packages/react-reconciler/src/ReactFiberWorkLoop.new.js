@@ -2220,7 +2220,7 @@ function commitMutationEffectsImpl(
 
     // Don't clear the deletion effect yet; we also use it to know when we need to detach refs later.
   }
-  fiber.deletions.splice(0);
+  deletions.splice(0);
 
   // The following switch statement is only concerned about placement,
   // updates, and deletions. To avoid needing to add a case for every possible

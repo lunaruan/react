@@ -2162,7 +2162,7 @@ function commitMutationEffects(
   if (fiber.child !== null) {
     const primarySubtreeTag =
       fiber.subtreeTag &
-      (ContentReset | Deletion | Hydrating | Placement | Update);
+      (ContentReset | Deletion | Hydrating | Placement | Ref | Update);
     if (primarySubtreeTag !== NoEffect) {
       commitMutationEffects(fiber.child, root, renderPriorityLevel);
     }
@@ -2201,6 +2201,15 @@ function commitMutationEffectsImpl(
   root: FiberRoot,
   renderPriorityLevel,
 ) {
+  const deletions = fiber.deletions;
+  for (let i = 0; i < deletions.length; i++) {
+    const childToDelete = deletions[i];
+    commitDeletion(root, childToDelete, renderPriorityLevel);
+
+    // Don't clear the deletion effect yet; we also use it to know when we need to detach refs later.
+  }
+  deletions.splice(0);
+
   const effectTag = fiber.effectTag;
   if (effectTag & ContentReset) {
     commitResetTextContent(fiber);
@@ -2212,15 +2221,6 @@ function commitMutationEffectsImpl(
       commitDetachRef(current);
     }
   }
-
-  const deletions = fiber.deletions;
-  for (let i = 0; i < deletions.length; i++) {
-    const childToDelete = deletions[i];
-    commitDeletion(root, childToDelete, renderPriorityLevel);
-
-    // Don't clear the deletion effect yet; we also use it to know when we need to detach refs later.
-  }
-  deletions.splice(0);
 
   // The following switch statement is only concerned about placement,
   // updates, and deletions. To avoid needing to add a case for every possible

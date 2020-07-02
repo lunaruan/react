@@ -2207,8 +2207,26 @@ function commitMutationEffectsDeletionsImpl(
 ) {
   for (let i = 0; i < deletions.length; i++) {
     const childToDelete = deletions[i];
-    commitDeletion(root, childToDelete, renderPriorityLevel);
-
+    if (__DEV__) {
+      invokeGuardedCallback(
+        null,
+        commitDeletion,
+        null,
+        root,
+        childToDelete,
+        renderPriorityLevel,
+      );
+      if (hasCaughtError()) {
+        const error = clearCaughtError();
+        captureCommitPhaseError(childToDelete, error);
+      }
+    } else {
+      try {
+        commitDeletion(root, childToDelete, renderPriorityLevel);
+      } catch (error) {
+        captureCommitPhaseError(childToDelete, error);
+      }
+    }
     // Don't clear the Deletion effect yet; we also use it to know when we need to detach refs later.
   }
 

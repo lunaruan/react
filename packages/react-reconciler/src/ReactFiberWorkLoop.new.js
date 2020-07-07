@@ -1728,7 +1728,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         returnFiber.firstEffect = returnFiber.lastEffect = null;
         returnFiber.effectTag |= Incomplete;
         returnFiber.subtreeTag = NoEffect;
-        returnFiber.deletions = [];
+        returnFiber.deletions = null;
       }
     }
 
@@ -1789,7 +1789,7 @@ function resetChildLanes(completedWork: Fiber) {
 
       subtreeTag |= child.subtreeTag;
       subtreeTag |= child.effectTag & HostEffectMask;
-      if (child.deletions.length > 0) {
+      if (child.deletions !== null) {
         subtreeTag |= Deletion;
       }
 
@@ -1834,7 +1834,7 @@ function resetChildLanes(completedWork: Fiber) {
 
       subtreeTag |= child.subtreeTag;
       subtreeTag |= child.effectTag & HostEffectMask;
-      if (child.deletions.length > 0) {
+      if (child.deletions !== null) {
         subtreeTag |= Deletion;
       }
 
@@ -2125,7 +2125,9 @@ function commitRootImpl(root, renderPriorityLevel) {
 }
 
 function commitBeforeMutationEffects(fiber: Fiber) {
-  commitBeforeMutationEffectsDeletions(fiber.deletions);
+  if (fiber.deletions !== null) {
+    commitBeforeMutationEffectsDeletions(fiber.deletions);
+  }
 
   if (fiber.child !== null) {
     const primarySubtreeTag =
@@ -2213,7 +2215,9 @@ function commitMutationEffects(
   root: FiberRoot,
   renderPriorityLevel,
 ) {
-  commitMutationEffectsDeletions(fiber.deletions, root, renderPriorityLevel);
+  if (fiber.deletions !== null) {
+    commitMutationEffectsDeletions(fiber.deletions, root, renderPriorityLevel);
+  }
 
   if (fiber.child !== null) {
     const primarySubtreeTag =

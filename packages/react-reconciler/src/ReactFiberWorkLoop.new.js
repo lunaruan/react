@@ -2125,6 +2125,8 @@ function commitRootImpl(root, renderPriorityLevel) {
 }
 
 function commitBeforeMutationEffects(fiber: Fiber) {
+  commitBeforeMutationEffectsDeletions(fiber.deletions);
+
   if (fiber.child !== null) {
     const primarySubtreeTag =
       fiber.subtreeTag & (Deletion | Snapshot | Passive | Placement);
@@ -2159,15 +2161,6 @@ function commitBeforeMutationEffectsImpl(fiber: Fiber) {
   const effectTag = fiber.effectTag;
 
   if (!shouldFireAfterActiveInstanceBlur && focusedInstanceHandle !== null) {
-    // The "deletions" array on a Fiber holds previous children that were marked for deletion.
-    // However the overall commit sequence relies on child deletions being processed before parent's effects,
-    // so to satisfy that we also process the parent's "deletions" array (the deletion of siblings).
-    commitBeforeMutationEffectsDeletions(fiber.deletions);
-    const parent = fiber.return;
-    if (parent) {
-      commitBeforeMutationEffectsDeletions(parent.deletions);
-    }
-
     // Check to see if the focused element was inside of a hidden (Suspense) subtree.
     // TODO: Move this out of the hot path using a dedicated effect tag.
     if (
@@ -2220,6 +2213,8 @@ function commitMutationEffects(
   root: FiberRoot,
   renderPriorityLevel,
 ) {
+  commitMutationEffectsDeletions(fiber.deletions, root, renderPriorityLevel);
+
   if (fiber.child !== null) {
     const primarySubtreeTag =
       fiber.subtreeTag &
@@ -2262,15 +2257,6 @@ function commitMutationEffectsImpl(
   root: FiberRoot,
   renderPriorityLevel,
 ) {
-  // The "deletions" array on a Fiber holds previous children that were marked for deletion.
-  // However the overall commit sequence relies on child deletions being processed before parent's effects,
-  // so to satisfy that we also process the parent's "deletions" array (the deletion of siblings).
-  commitMutationEffectsDeletions(fiber.deletions, root, renderPriorityLevel);
-  const parent = fiber.return;
-  if (parent) {
-    commitMutationEffectsDeletions(parent.deletions, root, renderPriorityLevel);
-  }
-
   const effectTag = fiber.effectTag;
   if (effectTag & ContentReset) {
     commitResetTextContent(fiber);

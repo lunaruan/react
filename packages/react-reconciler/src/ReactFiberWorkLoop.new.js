@@ -46,6 +46,12 @@ import {
   flushSyncCallbackQueue,
   scheduleSyncCallback,
 } from './SchedulerWithReactIntegration.new';
+import {
+  NoEffect as NoHookEffect,
+  HasEffect as HookHasEffect,
+  Layout as HookLayout,
+  Passive as HookPassive,
+} from './ReactHookEffectTags';
 
 // The scheduler is imported here *only* to detect whether it's been mocked
 import * as Scheduler from 'scheduler';
@@ -2198,6 +2204,8 @@ function commitMutationEffects(
 ) {
   if (fiber.deletions !== null) {
     commitMutationEffectsDeletions(fiber.deletions, root, renderPriorityLevel);
+
+    // TODO (effects) Clear deletions array if there are no pending passive effects.
   }
 
   if (fiber.child !== null) {
@@ -2330,9 +2338,6 @@ function commitMutationEffectsDeletions(
     }
     // Don't clear the Deletion effect yet; we also use it to know when we need to detach refs later.
   }
-
-  // TODO (effects) Don't clear this yet; we may need to cleanup passive effects
-  deletions.splice(0);
 }
 
 function commitLayoutEffects(
@@ -2446,6 +2451,10 @@ export function enqueuePendingPassiveHookEffectUnmount(
   fiber: Fiber,
   effect: HookEffect,
 ): void {
+  // TODO (effects) Describe why this is necessary for the special deletion case.
+  effect.tag |= HookHasEffect;
+
+  // TODO (effects) Stop using this.
   pendingPassiveHookEffectsUnmount.push(effect, fiber);
   if (__DEV__) {
     fiber.effectTag |= PassiveUnmountPendingDev;
@@ -2466,6 +2475,118 @@ export function enqueuePendingPassiveHookEffectUnmount(
 function invokePassiveEffectCreate(effect: HookEffect): void {
   const create = effect.create;
   effect.destroy = create();
+}
+
+function flushPassiveUnmountEffects(fiber: Fiber): void {
+  const deletions = fiber.deletions;
+  if (deletions !== null) {
+    for (let i = 0; i < deletions.length; i++) {
+      const fiberToDete = deletions[i];
+      // TODO (effects) This probably won't work because effectsTag and subtreeTag won't be set
+      // correctly for nested Fibers; we need to traverse the whole tree then which sucks.
+      // We should update commitUnmount() to handle this when we call enqueuePassive blah.
+      // TODO (effects) This is probably a change in deletion ordering (recursing subtrees this way)
+      // but that presumably doesn't matter so long as we process all deletions before creations?
+      flushPassiveUnmountEffects(fiberToDete);
+    }
+  }
+
+  if (fiber.child !== null) {
+    // TODO (effects) See above
+    //const primarySubtreeTag = fiber.subtreeTag & Deletion;
+    //if (primarySubtreeTag !== NoEffect) {
+      flushPassiveUnmountEffects(fiber.child);
+    //}
+  }
+
+  switch (fiber.tag) {
+    case FunctionComponent:
+    case ForwardRef:
+    case SimpleMemoComponent:
+    case Block: {
+      // TODO (effects) See above
+      //const primaryEffectTag = fiber.effectTag & Passive;
+      //if (primaryEffectTag !== NoEffect) {
+        flushPassiveUnmountEffectsImpl(fiber);
+      //}
+    }
+  }
+
+  if (fiber.sibling !== null) {
+    flushPassiveUnmountEffects(fiber.sibling);
+  }
+}
+
+function flushPassiveUnmountEffectsImpl(fiber: Fiber): void {
+  const updateQueue: FunctionComponentUpdateQueue | null = (fiber.updateQueue: any);
+  const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
+  if (lastEffect !== null) {
+    const firstEffect = lastEffect.next;
+    let effect = firstEffect;
+    do {
+      const {next, tag} = effect;
+      if (
+        (tag & HookPassive) !== NoHookEffect &&
+        (tag & HookHasEffect) !== NoHookEffect
+      ) {
+        const destroy = effect.destroy;
+        effect.destroy = undefined;
+
+        if (__DEV__) {
+          fiber.effectTag &= ~PassiveUnmountPendingDev;
+          const alternate = fiber.alternate;
+          if (alternate !== null) {
+            alternate.effectTag &= ~PassiveUnmountPendingDev;
+          }
+        }
+
+        if (typeof destroy === 'function') {
+          if (__DEV__) {
+            setCurrentDebugFiberInDEV(fiber);
+            if (
+              enableProfilerTimer &&
+              enableProfilerCommitHooks &&
+              fiber.mode & ProfileMode
+            ) {
+              startPassiveEffectTimer();
+              invokeGuardedCallback(null, destroy, null);
+              recordPassiveEffectDuration(fiber);
+            } else {
+              invokeGuardedCallback(null, destroy, null);
+            }
+            if (hasCaughtError()) {
+              invariant(fiber !== null, 'Should be working on an effect.');
+              const error = clearCaughtError();
+              captureCommitPhaseError(fiber, error);
+            }
+            resetCurrentDebugFiberInDEV();
+          } else {
+            try {
+              if (
+                enableProfilerTimer &&
+                enableProfilerCommitHooks &&
+                fiber.mode & ProfileMode
+              ) {
+                try {
+                  startPassiveEffectTimer();
+                  destroy();
+                } finally {
+                  recordPassiveEffectDuration(fiber);
+                }
+              } else {
+                destroy();
+              }
+            } catch (error) {
+              invariant(fiber !== null, 'Should be working on an effect.');
+              captureCommitPhaseError(fiber, error);
+            }
+          }
+        }
+      }
+
+      effect = next;
+    } while (effect !== firstEffect);
+  }
 }
 
 function flushPassiveEffectsImpl() {
@@ -2499,65 +2620,8 @@ function flushPassiveEffectsImpl() {
   // Layout effects have the same constraint.
 
   // First pass: Destroy stale passive effects.
-  const unmountEffects = pendingPassiveHookEffectsUnmount;
-  pendingPassiveHookEffectsUnmount = [];
-  for (let i = 0; i < unmountEffects.length; i += 2) {
-    const effect = ((unmountEffects[i]: any): HookEffect);
-    const fiber = ((unmountEffects[i + 1]: any): Fiber);
-    const destroy = effect.destroy;
-    effect.destroy = undefined;
+  flushPassiveUnmountEffects(root.current);
 
-    if (__DEV__) {
-      fiber.effectTag &= ~PassiveUnmountPendingDev;
-      const alternate = fiber.alternate;
-      if (alternate !== null) {
-        alternate.effectTag &= ~PassiveUnmountPendingDev;
-      }
-    }
-
-    if (typeof destroy === 'function') {
-      if (__DEV__) {
-        setCurrentDebugFiberInDEV(fiber);
-        if (
-          enableProfilerTimer &&
-          enableProfilerCommitHooks &&
-          fiber.mode & ProfileMode
-        ) {
-          startPassiveEffectTimer();
-          invokeGuardedCallback(null, destroy, null);
-          recordPassiveEffectDuration(fiber);
-        } else {
-          invokeGuardedCallback(null, destroy, null);
-        }
-        if (hasCaughtError()) {
-          invariant(fiber !== null, 'Should be working on an effect.');
-          const error = clearCaughtError();
-          captureCommitPhaseError(fiber, error);
-        }
-        resetCurrentDebugFiberInDEV();
-      } else {
-        try {
-          if (
-            enableProfilerTimer &&
-            enableProfilerCommitHooks &&
-            fiber.mode & ProfileMode
-          ) {
-            try {
-              startPassiveEffectTimer();
-              destroy();
-            } finally {
-              recordPassiveEffectDuration(fiber);
-            }
-          } else {
-            destroy();
-          }
-        } catch (error) {
-          invariant(fiber !== null, 'Should be working on an effect.');
-          captureCommitPhaseError(fiber, error);
-        }
-      }
-    }
-  }
   // Second pass: Create new passive effects.
   const mountEffects = pendingPassiveHookEffectsMount;
   pendingPassiveHookEffectsMount = [];

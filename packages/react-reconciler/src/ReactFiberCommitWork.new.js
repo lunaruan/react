@@ -1032,7 +1032,8 @@ function detachFiberMutation(fiber: Fiber) {
   fiber.pendingProps = null;
   fiber.return = null;
   fiber.stateNode = null;
-  fiber.updateQueue = null;
+  // TODO (effects) Don't clear this yet because Passive effects might need it.
+  // fiber.updateQueue = null;
   if (__DEV__) {
     fiber._debugOwner = null;
   }

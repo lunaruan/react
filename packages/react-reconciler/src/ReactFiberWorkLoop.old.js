@@ -1732,6 +1732,14 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
       }
 
       resetChildLanes(completedWork);
+      console.log(
+        'lanes: ',
+        getComponentName(completedWork.type),
+        completedWork.return === null,
+        completedWork.tag,
+        completedWork.childLanes,
+        completedWork.child && completedWork.child.childLanes,
+      );
 
       if (
         returnFiber !== null &&

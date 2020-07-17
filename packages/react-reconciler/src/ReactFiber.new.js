@@ -153,7 +153,7 @@ function FiberNode(
   this.lastEffect = null;
 
   this.lanes = NoLanes;
-  this.childLanes = NoLanes;
+  this._childLanes = NoLanes;
 
   this.alternate = null;
 
@@ -196,6 +196,27 @@ function FiberNode(
     }
   }
 }
+
+let COUNT = 0;
+FiberNode.prototype = {
+  get childLanes() {
+    return this._childLanes;
+  },
+
+  set childLanes(lane) {
+    if (lane > 0 && COUNT < 20) {
+      COUNT++;
+      // console.log(
+      //   lane,
+      //   new Error().stack
+      //     .split('\n')
+      //     .splice(2, 4)
+      //     .join('\n'),
+      // );
+    }
+    this._childLanes = lane;
+  },
+};
 
 // This is a constructor function, rather than a POJO constructor, still
 // please ensure we do the following:

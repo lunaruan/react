@@ -49,6 +49,7 @@ import {
   Update as UpdateEffect,
   Passive as PassiveEffect,
   PassiveStatic as PassiveStaticEffect,
+  LayoutStatic as LayoutStaticEffect,
   MountLayoutDev as MountLayoutDevEffect,
   MountPassiveDev as MountPassiveDevEffect,
 } from './ReactFiberFlags';
@@ -1289,13 +1290,18 @@ function mountLayoutEffect(
 ): void {
   if (__DEV__ && enableDoubleInvokingEffects) {
     return mountEffectImpl(
-      MountLayoutDevEffect | UpdateEffect,
+      MountLayoutDevEffect | UpdateEffect | LayoutStaticEffect,
       HookLayout,
       create,
       deps,
     );
   } else {
-    return mountEffectImpl(UpdateEffect, HookLayout, create, deps);
+    return mountEffectImpl(
+      UpdateEffect | LayoutStaticEffect,
+      HookLayout,
+      create,
+      deps,
+    );
   }
 }
 
@@ -1357,14 +1363,14 @@ function mountImperativeHandle<T>(
 
   if (__DEV__ && enableDoubleInvokingEffects) {
     return mountEffectImpl(
-      MountLayoutDevEffect | UpdateEffect,
+      MountLayoutDevEffect | UpdateEffect | LayoutStaticEffect,
       HookLayout,
       imperativeHandleEffect.bind(null, create, ref),
       effectDeps,
     );
   } else {
     return mountEffectImpl(
-      UpdateEffect,
+      UpdateEffect | LayoutStaticEffect,
       HookLayout,
       imperativeHandleEffect.bind(null, create, ref),
       effectDeps,

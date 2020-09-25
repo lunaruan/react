@@ -57,5 +57,7 @@ export {
   unstable_useOpaqueIdentifier,
   // enableDebugTracing
   unstable_DebugTracingMode,
+  // enableOffscreenAPI
+  unstable_Offscreen,
 } from './src/React';
 export {jsx, jsxs, jsxDEV} from './src/jsx/ReactJSX';

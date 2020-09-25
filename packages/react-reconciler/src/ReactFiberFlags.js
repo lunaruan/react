@@ -46,6 +46,8 @@ export const ForceUpdateForLegacySuspense = /* */ 0b000100000000000000;
 // since we can defer traversing the tree during layout to look for Passive effects,
 // and instead rely on the static flag as a signal that there may be cleanup work.
 export const PassiveStatic = /*                */ 0b001000000000000000;
+export const LayoutStatic = /*                */ 0b1000000000000000000;
+export const RefStatic = /*                  */ 0b10000000000000000000;
 
 // Union of side effect groupings as pertains to subtreeFlags
 export const BeforeMutationMask = /*           */ 0b000000001100001010;
@@ -56,7 +58,7 @@ export const PassiveMask = /*                  */ 0b000000001000001000;
 // Union of tags that don't get reset on clones.
 // This allows certain concepts to persist without recalculting them,
 // e.g. whether a subtree contains passive effects or portals.
-export const StaticMask = /*                   */ 0b001000000000000000;
+export const StaticMask = /*                  */ 0b11001000000000000000;
 
 // These flags allow us to traverse to fibers that have effects on mount
 // without traversing the entire tree after every commit for

@@ -138,3 +138,5 @@ export const enableEagerRootListeners = true;
 export const disableSchedulerTimeoutInWorkLoop = false;
 
 export const enableDoubleInvokingEffects = false;
+
+export const enableOffscreenAPI = false;

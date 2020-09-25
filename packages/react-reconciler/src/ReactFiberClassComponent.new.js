@@ -12,7 +12,12 @@ import type {Lanes} from './ReactFiberLane';
 import type {UpdateQueue} from './ReactUpdateQueue.new';
 
 import * as React from 'react';
-import {Update, Snapshot, MountLayoutDev} from './ReactFiberFlags';
+import {
+  Update,
+  Snapshot,
+  MountLayoutDev,
+  LayoutStatic,
+} from './ReactFiberFlags';
 import {
   debugRenderPhaseSideEffectsForStrictMode,
   disableLegacyContext,
@@ -892,9 +897,9 @@ function mountClassInstance(
 
   if (typeof instance.componentDidMount === 'function') {
     if (__DEV__ && enableDoubleInvokingEffects) {
-      workInProgress.flags |= MountLayoutDev | Update;
+      workInProgress.flags |= MountLayoutDev | Update | LayoutStatic;
     } else {
-      workInProgress.flags |= Update;
+      workInProgress.flags |= Update | LayoutStatic;
     }
   }
 }
@@ -966,9 +971,9 @@ function resumeMountClassInstance(
     // effect even though we're bailing out, so that cWU/cDU are called.
     if (typeof instance.componentDidMount === 'function') {
       if (__DEV__ && enableDoubleInvokingEffects) {
-        workInProgress.flags |= MountLayoutDev | Update;
+        workInProgress.flags |= MountLayoutDev | Update | LayoutStatic;
       } else {
-        workInProgress.flags |= Update;
+        workInProgress.flags |= Update | LayoutStatic;
       }
     }
     return false;
@@ -1013,9 +1018,9 @@ function resumeMountClassInstance(
     }
     if (typeof instance.componentDidMount === 'function') {
       if (__DEV__ && enableDoubleInvokingEffects) {
-        workInProgress.flags |= MountLayoutDev | Update;
+        workInProgress.flags |= MountLayoutDev | Update | LayoutStatic;
       } else {
-        workInProgress.flags |= Update;
+        workInProgress.flags |= Update | LayoutStatic;
       }
     }
   } else {
@@ -1023,9 +1028,9 @@ function resumeMountClassInstance(
     // effect even though we're bailing out, so that cWU/cDU are called.
     if (typeof instance.componentDidMount === 'function') {
       if (__DEV__ && enableDoubleInvokingEffects) {
-        workInProgress.flags |= MountLayoutDev | Update;
+        workInProgress.flags |= MountLayoutDev | Update | LayoutStatic;
       } else {
-        workInProgress.flags |= Update;
+        workInProgress.flags |= Update | LayoutStatic;
       }
     }
 

@@ -30,6 +30,7 @@ export const {
   enableEagerRootListeners,
   disableSchedulerTimeoutInWorkLoop,
   enableDoubleInvokingEffects,
+  enableOffscreenAPI,
 } = dynamicFeatureFlags;
 
 // On WWW, __EXPERIMENTAL__ is used for a new modern build.

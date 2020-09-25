@@ -114,6 +114,7 @@
     "test": "node ./scripts/jest/jest-cli.js",
     "test-www": "yarn test --release-channel=www-modern",
     "test-www-variant": "yarn test --release-channel=www-modern --variant",
+    "debug-test-www-variant": "yarn test --release-channel=www-modern --variant --debug",
     "test-prod-www": "yarn test --prod --release-channel=www-modern",
     "test-prod-www-variant": "yarn test --prod --release-channel=www-modern --variant",
     "test-persistent": "yarn test --persistent",

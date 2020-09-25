@@ -117,6 +117,7 @@ import {
   SimpleMemoComponent,
   Block,
   ScopeComponent,
+  OffscreenComponent,
 } from './ReactWorkTags';
 import {LegacyRoot} from './ReactRootTags';
 import {
@@ -130,6 +131,8 @@ import {
   Callback,
   Passive,
   PassiveStatic,
+  LayoutStatic,
+  RefStatic,
   Incomplete,
   HostEffectMask,
   Hydrating,
@@ -192,6 +195,7 @@ import {
 import {
   commitBeforeMutationLifeCycles as commitBeforeMutationEffectOnFiber,
   commitLifeCycles as commitLayoutEffectOnFiber,
+  commitOffscreenLayoutEffectOnFiber,
   commitPlacement,
   commitWork,
   commitDeletion,
@@ -1665,7 +1669,6 @@ function performUnitOfWork(unitOfWork: Fiber): void {
   // need an additional field on the work in progress.
   const current = unitOfWork.alternate;
   setCurrentDebugFiberInDEV(unitOfWork);
-
   let next;
   if (enableProfilerTimer && (unitOfWork.mode & ProfileMode) !== NoMode) {
     startProfilerTimer(unitOfWork);
@@ -1762,7 +1765,6 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         returnFiber.deletions = null;
       }
     }
-
     const siblingFiber = completedWork.sibling;
     if (siblingFiber !== null) {
       // If there is more work to do in this returnFiber, do that next.
@@ -2368,6 +2370,125 @@ export function schedulePassiveEffectCallback() {
   }
 }
 
+function commitLayoutEffectsForOffscreenTree(
+  firstChild: Fiber,
+  root: FiberRoot,
+  committedLanes: Lanes,
+) {
+  let fiber = firstChild;
+  while (fiber !== null) {
+    switch (fiber.tag) {
+      case OffscreenComponent: {
+        const childIsOffscreen = fiber.memoizedState !== null;
+        const didUpdate = (fiber.flags & Update) !== NoFlags;
+        if (!childIsOffscreen && didUpdate && fiber.alternate) {
+          if ((fiber.subtreeFlags & (LayoutStatic | RefStatic)) !== NoFlags) {
+            commitLayoutEffectsForOffscreenTree(
+              fiber.child,
+              root,
+              committedLanes,
+            );
+          }
+        }
+        break;
+      }
+      default: {
+        if ((fiber.subtreeFlags & (LayoutStatic | RefStatic)) !== NoFlags) {
+          commitLayoutEffectsForOffscreenTree(
+            fiber.child,
+            root,
+            committedLanes,
+          );
+        }
+        break;
+      }
+    }
+
+    if (__DEV__) {
+      setCurrentDebugFiberInDEV(fiber);
+      invokeGuardedCallback(
+        null,
+        commitLayoutEffectsForOffscreenTreeImpl,
+        null,
+        fiber,
+        root,
+        committedLanes,
+      );
+      if (hasCaughtError()) {
+        const error = clearCaughtError();
+        captureCommitPhaseError(fiber, error);
+      }
+      resetCurrentDebugFiberInDEV();
+    } else {
+      try {
+        commitLayoutEffectsForOffscreenTreeImpl(fiber, root, committedLanes);
+      } catch (error) {
+        captureCommitPhaseError(fiber, error);
+      }
+    }
+
+    fiber = fiber.sibling;
+  }
+}
+
+function commitLayoutEffectsForOffscreenTreeImpl(
+  fiber: Fiber,
+  root: FiberRoot,
+  committedLanes: Lanes,
+) {
+  const flags = fiber.flags;
+  setCurrentDebugFiberInDEV(fiber);
+
+  const current = fiber.alternate;
+  switch (fiber.tag) {
+    case FunctionComponent:
+    case ForwardRef:
+    case SimpleMemoComponent:
+    case Block: {
+      if (flags & LayoutStatic) {
+        commitOffscreenLayoutEffectOnFiber(
+          root,
+          current,
+          fiber,
+          committedLanes,
+        );
+      }
+      break;
+    }
+    case ClassComponent: {
+      if (flags & LayoutStatic) {
+        commitOffscreenLayoutEffectOnFiber(
+          root,
+          current,
+          fiber,
+          committedLanes,
+        );
+      }
+      break;
+    }
+    default: {
+      if (flags & (Update | Callback)) {
+        commitLayoutEffectOnFiber(root, current, fiber, committedLanes);
+      }
+      break;
+    }
+  }
+
+  if (enableScopeAPI) {
+    // TODO: This is a temporary solution that allowed us to transition away
+    // from React Flare on www.
+    if (flags & Ref && fiber.tag !== ScopeComponent) {
+      commitAttachRef(fiber);
+    }
+  } else {
+    if (flags & Ref) {
+      commitAttachRef(fiber);
+    }
+  }
+
+  resetCurrentDebugFiberInDEV();
+}
+
 function commitLayoutEffects(
   firstChild: Fiber,
   root: FiberRoot,
@@ -2376,9 +2497,45 @@ function commitLayoutEffects(
   let fiber = firstChild;
   while (fiber !== null) {
     if (fiber.child !== null) {
-      const primarySubtreeFlags = fiber.subtreeFlags & LayoutMask;
-      if (primarySubtreeFlags !== NoFlags) {
-        commitLayoutEffects(fiber.child, root, committedLanes);
+      switch (fiber.tag) {
+        case OffscreenComponent: {
+          const isOffscreen = fiber.memoizedState !== null;
+          const didUpdate = (fiber.flags & Update) !== NoFlags;
+          if (
+            !isOffscreen &&
+            didUpdate &&
+            fiber.alternate &&
+            (fiber.alternate.memoizedProps.mode === 'hidden' ||
+              fiber.alternate.memoizedProps.mode ===
+                'hidden-with-aggressive-cleanup')
+          ) {
+            commitLayoutEffectsForOffscreenTree(
+              fiber.child,
+              root,
+              committedLanes,
+            );
+          } else if (
+            !(
+              isOffscreen &&
+              didUpdate &&
+              (fiber.memoizedProps.mode === 'hidden' ||
+                fiber.memoizedProps.mode === 'hidden-with-aggressive-cleanup')
+            )
+          ) {
+            const primarySubtreeFlags = fiber.subtreeFlags & LayoutMask;
+            if (primarySubtreeFlags !== NoFlags) {
+              commitLayoutEffects(fiber.child, root, committedLanes);
+            }
+          }
+          break;
+        }
+        default: {
+          const primarySubtreeFlags = fiber.subtreeFlags & LayoutMask;
+          if (primarySubtreeFlags !== NoFlags) {
+            commitLayoutEffects(fiber.child, root, committedLanes);
+          }
+          break;
+        }
       }
     }
 
@@ -2468,7 +2625,40 @@ function flushPassiveMountEffects(root, firstChild: Fiber): void {
     const primarySubtreeFlags = fiber.subtreeFlags & PassiveMask;
 
     if (fiber.child !== null && primarySubtreeFlags !== NoFlags) {
-      flushPassiveMountEffects(root, fiber.child);
+      switch (fiber.tag) {
+        case OffscreenComponent: {
+          const isOffscreen = fiber.memoizedState !== null;
+          const didUpdate = (fiber.flags & Update) !== NoFlags;
+
+          if (
+            !isOffscreen &&
+            didUpdate &&
+            fiber.alternate &&
+            fiber.alternate.memoizedProps.mode ===
+              'hidden-with-aggressive-cleanup'
+          ) {
+            if ((fiber.subtreeFlags & PassiveStatic) !== NoFlags) {
+              flushPassiveEffectsForOffscreenTree(
+                root,
+                fiber.child,
+                isOffscreen,
+              );
+            }
+          } else if (
+            !(
+              isOffscreen &&
+              didUpdate &&
+              fiber.memoizedProps.mode === 'hidden-with-aggressive-cleanup'
+            )
+          ) {
+            flushPassiveMountEffects(root, fiber.child);
+          }
+          break;
+        }
+        default: {
+          flushPassiveMountEffects(root, fiber.child);
+        }
+      }
     }
 
     if ((fiber.flags & Passive) !== NoFlags) {
@@ -2502,6 +2692,7 @@ function flushPassiveMountEffects(root, firstChild: Fiber): void {
 function flushPassiveUnmountEffects(firstChild: Fiber): void {
   let fiber = firstChild;
   while (fiber !== null) {
+    // let fiberIsOffscreen = isOffscreen || (fiber.type === OffscreenComponent && fiber.alternate === null ||;
     const deletions = fiber.deletions;
     if (deletions !== null) {
       for (let i = 0; i < deletions.length; i++) {
@@ -2515,13 +2706,53 @@ function flushPassiveUnmountEffects(firstChild: Fiber): void {
 
     const child = fiber.child;
     if (child !== null) {
-      // If any children have passive effects then traverse the subtree.
-      // Note that this requires checking subtreeFlags of the current Fiber,
-      // rather than the subtreeFlags/effectsTag of the first child,
-      // since that would not cover passive effects in siblings.
-      const passiveFlags = fiber.subtreeFlags & PassiveMask;
-      if (passiveFlags !== NoFlags) {
-        flushPassiveUnmountEffects(child);
+      switch (fiber.tag) {
+        case OffscreenComponent: {
+          const isOffscreen = fiber.memoizedState !== null;
+          const didUpdate = (fiber.flags & Update) !== NoFlags;
+          const offscreenMode = fiber.memoizedProps.mode;
+
+          if (
+            isOffscreen &&
+            didUpdate &&
+            offscreenMode === 'hidden-with-aggressive-cleanup'
+          ) {
+            if ((fiber.subtreeFlags & PassiveStatic) !== NoFlags) {
+              // Todo we don't need to pass root in for unmount effects.
+              // Fix this
+              flushPassiveEffectsForOffscreenTree(child, child, isOffscreen);
+            }
+          } else if (
+            !(
+              !isOffscreen &&
+              didUpdate &&
+              fiber.alternate &&
+              fiber.alternate.memoizedProps.mode ===
+                'hidden-with-aggressive-cleanup'
+            )
+          ) {
+            // If any children have passive effects then traverse the subtree.
+            // Note that this requires checking subtreeFlags of the current Fiber,
+            // rather than the subtreeFlags/effectsTag of the first child,
+            // since that would not cover passive effects in siblings.
+            const passiveFlags = fiber.subtreeFlags & PassiveMask;
+            if (passiveFlags !== NoFlags) {
+              flushPassiveUnmountEffects(child);
+            }
+          }
+          break;
+        }
+        default: {
+          // If any children have passive effects then traverse the subtree.
+          // Note that this requires checking subtreeFlags of the current Fiber,
+          // rather than the subtreeFlags/effectsTag of the first child,
+          // since that would not cover passive effects in siblings.
+          const passiveFlags = fiber.subtreeFlags & PassiveMask;
+          if (passiveFlags !== NoFlags) {
+            flushPassiveUnmountEffects(child);
+          }
+          break;
+        }
       }
     }
 
@@ -2530,6 +2761,55 @@ function flushPassiveUnmountEffects(firstChild: Fiber): void {
       setCurrentDebugFiberInDEV(fiber);
       commitPassiveUnmountInsideDeletedTreeOnFiber(fiber);
       resetCurrentDebugFiberInDEV();
+    }
+    fiber = fiber.sibling;
+  }
+}
+function flushPassiveEffectsForOffscreenTree(
+  root: Fiber,
+  firstChild: Fiber,
+  isOffscreen: boolean,
+) {
+  let fiber = firstChild;
+  while (fiber !== null) {
+    switch (fiber.tag) {
+      case OffscreenComponent: {
+        const childIsOffscreen = fiber.memoizedState !== null;
+        const didUpdate = (fiber.flags & Update) !== NoFlags;
+        if (
+          !childIsOffscreen &&
+          didUpdate &&
+          fiber.alternate &&
+          fiber.alternate.memoizedProps.mode ===
+            'hidden-with-aggressive-cleanup'
+        ) {
+          if ((fiber.subtreeFlags & PassiveStatic) !== NoFlags) {
+            flushPassiveEffectsForOffscreenTree(root, fiber.child, isOffscreen);
+          }
+        }
+        break;
+      }
+      default: {
+        if ((fiber.subtreeFlags & PassiveStatic) !== NoFlags) {
+          flushPassiveEffectsForOffscreenTree(root, fiber.child, isOffscreen);
+        }
+        break;
+      }
+    }
+
+    if ((fiber.flags & Passive) !== NoFlags) {
+      switch (fiber.tag) {
+        case FunctionComponent:
+        case ForwardRef:
+        case SimpleMemoComponent:
+        case Block: {
+          if (isOffscreen) {
+            commitPassiveUnmountOnFiber(fiber, fiber.return);
+          } else {
+            commitPassiveMountOnFiber(root, fiber);
+          }
+        }
+      }
     }
 
     fiber = fiber.sibling;

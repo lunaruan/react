@@ -78,6 +78,8 @@ import {
   PassiveMask,
   StaticMask,
   PerformedWork,
+  PassiveStatic,
+  RefStatic,
 } from './ReactFiberFlags';
 import invariant from 'shared/invariant';
 
@@ -170,7 +172,7 @@ function markUpdate(workInProgress: Fiber) {
 }
 
 function markRef(workInProgress: Fiber) {
-  workInProgress.flags |= Ref;
+  workInProgress.flags |= Ref | RefStatic;
 }
 
 function hadNoMutationsEffects(current: null | Fiber, completedWork: Fiber) {
@@ -1509,7 +1511,6 @@ function completeWork(
         return null;
       }
       break;
-    case OffscreenComponent:
     case LegacyHiddenComponent: {
       popRenderLanes(workInProgress);
       const nextState: OffscreenState | null = workInProgress.memoizedState;
@@ -1524,6 +1525,36 @@ function completeWork(
           newProps.mode !== 'unstable-defer-without-hiding'
         ) {
           workInProgress.flags |= Update;
+        }
+      }
+
+      // Don't bubble properties for hidden children.
+      if (
+        !nextIsHidden ||
+        includesSomeLane(subtreeRenderLanes, (OffscreenLane: Lane)) ||
+        (workInProgress.mode & ConcurrentMode) === NoMode
+      ) {
+        bubbleProperties(workInProgress);
+      }
+
+      return null;
+    }
+    case OffscreenComponent: {
+      popRenderLanes(workInProgress);
+      const nextState: OffscreenState | null = workInProgress.memoizedState;
+      const nextIsHidden = nextState !== null;
+
+      if (current !== null) {
+        const prevState: OffscreenState | null = current.memoizedState;
+
+        const prevIsHidden = prevState !== null;
+        if (
+          prevIsHidden !== nextIsHidden &&
+          newProps.mode !== 'unstable-defer-without-hiding'
+        ) {
+          workInProgress.flags |= Update;
+          // TODO: This should only work for aggressive yields
+          workInProgress.flags |= Passive;
         }
       }
 

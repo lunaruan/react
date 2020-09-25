@@ -71,6 +71,10 @@ import {
   Update,
   Callback,
   PassiveMask,
+  PassiveStatic,
+  LayoutStatic,
+  RefStatic,
+  Ref,
 } from './ReactFiberFlags';
 import getComponentName from 'shared/getComponentName';
 import invariant from 'shared/invariant';
@@ -125,8 +129,8 @@ import {
 import {
   NoFlags as NoHookEffect,
   HasEffect as HookHasEffect,
-  Layout as HookLayout,
   Passive as HookPassive,
+  Layout as HookLayout,
 } from './ReactHookEffectTags';
 import {didWarnAboutReassigningProps} from './ReactFiberBeginWork.new';
 
@@ -445,6 +449,49 @@ function commitProfilerPassiveEffect(
   }
 }
 
+function commitOffscreenLayoutEffectOnFiber(
+  finishedRoot: FiberRoot,
+  current: Fiber | null,
+  finishedWork: Fiber,
+  commitLanes: Lanes,
+) {
+  switch (finishedWork.tag) {
+    case FunctionComponent:
+    case ForwardRef:
+    case SimpleMemoComponent:
+    case Block: {
+      // At this point layout effects have already been destroyed (during mutation phase).
+      // This is done to prevent sibling component effects from interfering with each other,
+      // e.g. a destroy function in one component should never override a ref set
+      // by a create function in another component during the same commit.'
+      if (
+        enableProfilerTimer &&
+        enableProfilerCommitHooks &&
+        finishedWork.mode & ProfileMode
+      ) {
+        try {
+          startLayoutEffectTimer();
+          commitHookEffectListMount(HookLayout, finishedWork);
+        } finally {
+          recordLayoutEffectDuration(finishedWork);
+        }
+      } else {
+        commitHookEffectListMount(HookLayout, finishedWork);
+      }
+
+      if ((finishedWork.subtreeFlags & PassiveStatic) !== NoFlags) {
+        schedulePassiveEffectCallback();
+      }
+      return;
+    }
+    case ClassComponent: {
+      finishedWork.flags |= Placement | Update;
+      commitLifeCycles(finishedRoot, current, finishedWork, commitLanes);
+      return;
+    }
+  }
+}
+
 function commitLifeCycles(
   finishedRoot: FiberRoot,
   current: Fiber | null,
@@ -483,7 +530,7 @@ function commitLifeCycles(
     case ClassComponent: {
       const instance = finishedWork.stateNode;
       if (finishedWork.flags & Update) {
-        if (current === null) {
+        if (current === null || finishedWork.flags & Placement) {
           // We could update instance props and state here,
           // but instead we rely on them being set during last render.
           // TODO: revisit this when we implement resuming.
@@ -767,6 +814,134 @@ function commitLifeCycles(
     'This unit of work tag should not have side-effects. This error is ' +
       'likely caused by a bug in React. Please file an issue.',
   );
+}
+
+function toggleOffscreenSubtree(finishedWork, isOffscreen) {
+  toggleOffscreenSubtreeImpl(finishedWork, finishedWork, isOffscreen, true);
+  const offscreenMode = finishedWork.memoizedProps.mode;
+  if (
+    ((isOffscreen && offscreenMode === 'hidden-with-aggressive-cleanup') ||
+      (!isOffscreen &&
+        finishedWork.alternate &&
+        finishedWork.alternate.memoizedProps.mode ===
+          'hidden-with-aggressive-cleanup')) &&
+    (finishedWork.subtreeFlags & PassiveStatic) !== NoFlags
+  ) {
+    let fiber = finishedWork.return;
+    while (fiber !== null && (fiber.subtreeFlags & PassiveStatic) === NoFlags) {
+      fiber.subtreeFlags |= PassiveStatic;
+
+      fiber = fiber.return;
+    }
+  }
+}
+
+function toggleOffscreenSubtreeImpl(
+  offscreenFiber,
+  firstChild,
+  isOffscreen,
+  shouldHideOrUnhide,
+) {
+  let fiber = firstChild;
+  while (fiber !== null) {
+    if (
+      (fiber.tag === OffscreenComponent ||
+        fiber.tag === LegacyHiddenComponent) &&
+      offscreenFiber !== fiber &&
+      fiber.memoizedState !== null
+    ) {
+      // A nested Offscreen component is Offscreen, which means its effects have already
+      // been unmounted. Skip over the children;
+      fiber = fiber.sibling;
+      continue;
+    }
+
+    let shouldHideOrUnhideChildren = shouldHideOrUnhide;
+    switch (fiber.tag) {
+      case HostComponent: {
+        if (shouldHideOrUnhide) {
+          const instance = fiber.stateNode;
+          if (isOffscreen) {
+            hideInstance(instance);
+          } else {
+            unhideInstance(fiber.stateNode, fiber.memoizedProps);
+          }
+          // Subsequent children do not need their hidden/unhidden because the
+          // parent has been hidden/unhidden
+          shouldHideOrUnhideChildren = false;
+        }
+
+        if (fiber.ref !== null) {
+          if (isOffscreen) {
+            commitDetachRef(fiber);
+          }
+        }
+        break;
+      }
+      case HostText: {
+        if (shouldHideOrUnhide) {
+          const instance = fiber.stateNode;
+          if (isOffscreen) {
+            hideTextInstance(instance);
+          } else {
+            unhideTextInstance(instance, fiber.memoizedProps);
+          }
+          // Subsequent children do not need to be hidden/unhidden because the
+          // parent has been hidden/unhidden
+          shouldHideOrUnhideChildren = false;
+        }
+        break;
+      }
+      case ClassComponent: {
+        if (isOffscreen) {
+          if (fiber.ref !== null) {
+            commitDetachRef(fiber);
+          }
+          const instance = fiber.stateNode;
+          if (typeof instance.componentWillUnmount === 'function') {
+            safelyCallComponentWillUnmount(fiber, instance, fiber.return);
+          }
+        } else {
+          if (fiber.ref !== null) {
+            fiber.flags |= Ref | RefStatic;
+          }
+          const instance = fiber.stateNode;
+          if (typeof instance.componentDidMount === 'function') {
+            fiber.flags |= Placement | Update;
+          }
+        }
+        break;
+      }
+      case FunctionComponent:
+      case ForwardRef:
+      case SimpleMemoComponent:
+      case Block: {
+        if (isOffscreen) {
+          commitHookEffectListUnmount(HookLayout, fiber, fiber.return);
+        }
+        break;
+      }
+      case HostPortal: {
+        // Because Portals can be deeply nested and are outside of the DOM tree, its children
+        // must be hidden/unhidden as well
+        shouldHideOrUnhideChildren = true;
+        break;
+      }
+      default:
+        break;
+    }
+
+    if (fiber.child !== null) {
+      // TODO: Short circut this
+      toggleOffscreenSubtreeImpl(
+        offscreenFiber,
+        fiber.child,
+        isOffscreen,
+        shouldHideOrUnhideChildren,
+      );
+    }
+    fiber = fiber.sibling;
+  }
 }
 
 function hideOrUnhideAllChildren(finishedWork, isHidden) {
@@ -1657,11 +1832,16 @@ function commitWork(current: Fiber | null, finishedWork: Fiber): void {
       }
       break;
     }
-    case OffscreenComponent:
     case LegacyHiddenComponent: {
       const newState: OffscreenState | null = finishedWork.memoizedState;
       const isHidden = newState !== null;
       hideOrUnhideAllChildren(finishedWork, isHidden);
+      return;
+    }
+    case OffscreenComponent: {
+      const newState: OffscreenState | null = finishedWork.memoizedState;
+      const isOffscreen = newState !== null;
+      toggleOffscreenSubtree(finishedWork, isOffscreen);
       return;
     }
   }
@@ -1857,6 +2037,7 @@ function commitPassiveMount(
   finishedRoot: FiberRoot,
   finishedWork: Fiber,
 ): void {
+  // console.log('commit passive mount', getComponentName(finishedWork.type));
   switch (finishedWork.tag) {
     case FunctionComponent:
     case ForwardRef:
@@ -2017,6 +2198,7 @@ export {
   commitDeletion,
   commitWork,
   commitLifeCycles,
+  commitOffscreenLayoutEffectOnFiber,
   commitAttachRef,
   commitDetachRef,
   commitPassiveUnmount,

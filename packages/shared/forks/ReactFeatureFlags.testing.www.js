@@ -50,6 +50,7 @@ export const decoupleUpdatePriorityFromScheduler = false;
 export const enableDiscreteEventFlushingChange = true;
 export const enableEagerRootListeners = true;
 export const disableSchedulerTimeoutInWorkLoop = false;
+export const enableOffscreenAPI = false;
 
 export const enableDoubleInvokingEffects = false;
 
